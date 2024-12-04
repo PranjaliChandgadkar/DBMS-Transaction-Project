@@ -10,10 +10,8 @@ conn = psycopg2.connect(
     password="asdfghjkl"     # Replace with your password
 )
 
-# Your transaction code here
-# Set isolation level for SERIALIZABLE isolation
 conn.set_isolation_level(3)
-# Disable autocommit to manage transactions manually
+
 conn.autocommit = False
 
 try:
