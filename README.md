@@ -1,61 +1,102 @@
 # DBMS-Transaction-Project
-import psycopg2
-from tabulate import tabulate
- 
-con = psycopg2.connect(
+ import psycopg2
+
+# Connect to the PostgreSQL database
+conn = psycopg2.connect(
     host="localhost",
-    database="DBMS_Project",
-    user="postgres",
-    password="asdfghjkl")
- 
- 
-#For isolation: SERIALIZABLE
-con.set_isolation_level(3)
-#For atomicity
-con.autocommit = False
- 
+    port=5432,
+    database="DBMS_Project",  # Replace with your database name
+    user="postgres",         # Replace with your username
+    password="asdfghjkl"     # Replace with your password
+)
+
+# Your transaction code here
+# Set isolation level for SERIALIZABLE isolation
+conn.set_isolation_level(3)
+# Disable autocommit to manage transactions manually
+conn.autocommit = False
+
 try:
-    cur = con.cursor()
- 
-    cur.execute("ALTER TABLE Stock ADD CONSTRAINT fk_depot FOREIGN KEY(dep_id) REFERENCES depot(dep_id) ON UPDATE CASCADE ON DELETE CASCADE");
-    cur.execute("ALTER TABLE Stock ADD CONSTRAINT fk_product FOREIGN KEY(prod_id) REFERENCES product(prod_id) ON UPDATE CASCADE ON DELETE CASCADE");
-    #5 We add a product (p100, cd, 5) in Product and (p100, d2, 50) in Stock.
-    cur.execute("insert into product values ('p100','cd',5)")
-    cur.execute("insert into stock values ('p100','d2',50)")
-    #6 We add a depot (d100, Chicago, 100) in Depot and (p1, d100, 100) in Stock.
-    cur.execute("insert into depot values ('d100','Chicago',100)")
-    cur.execute("insert into stock values ('p1','d100',100)")
- 
-    # #3 The product p1 changes its name to pp1 in Product and Stock.
-    cur.execute("update product set prod_id = 'pp1' where prod_id ='p1'")
-    # # Since we have added the on update and on delete cascade, we do not need to execute below query to update stock. Chnages in product will auto reflect in stock
-    # #cur.execute("update stock set prod_id = 'pp1' where prod_id ='p1'")
- 
-    # #4 The depot d1 changes its name to dd1 in Depot and Stock.
-    cur.execute("update depot set dep_id = 'dd1' where dep_id ='d1'")
-    # # Since we have added the on update and on delete cascade, we do not need to execute below query to update stock. Changes in depot will auto reflect in stock
-    # #cur.execute("update stock set dep_id = 'dd1' where dep_id ='d1'")
-    # #1 The product p1 is deleted from Product and Stock.
-    cur.execute("delete from product where prod_id='pp1'")
-    # # Since we have added the on update and on delete cascade, we do not need to execute below query to update stock. Changes in product will auto reflect in stock
-    # #cur.execute("delete from stock where prod_id='pp1'")
- 
-    # #2 The depot d1 is deleted from Depot and Stock.
-    cur.execute("delete from depot where dep_id='dd1'")
-    # # Since we have added the on update and on delete cascade, we do not need to execute below query to update stock. Changes in depot will auto reflect in stock
-    # #cur.execute("delete from stock where dep_id='dd1'")
-    cur.execute("select * from stock")
-    rows = cur.fetchall()
-    for row in rows:
-        print(row)
- 
-except (Exception, psycopg2.DatabaseError) as err:
-    print(err)
-    print("Transactions could not be completed so database will be rolled back before start of transactions")
-    con.rollback()
+    cur = conn.cursor()
+
+    # Transaction 1: Add product (P100, cd, 5) in Product
+    cur.execute("""
+        INSERT INTO product (prod_id, pname, price) 
+        VALUES ('P100', 'cd', 5)
+        ON CONFLICT (prod_id) DO NOTHING
+    """)
+
+    # Transaction 2: Add product (P1, Tape, 5) in Product (make sure 'P1' exists)
+    cur.execute("""
+        INSERT INTO product (prod_id, pname, price) 
+        VALUES ('P1', 'Tape', 5)
+        ON CONFLICT (prod_id) DO NOTHING
+    """)
+
+    # Transaction 3: Add depot (D2, New York, 1000) in Depot
+    # Ensure the depot 'D2' exists before inserting into stock
+    cur.execute("""
+        INSERT INTO depot (dept_id, addr, volume) 
+        VALUES ('D2', 'New York', 1000)
+        ON CONFLICT (dept_id) DO NOTHING
+    """)
+
+    # Transaction 4: Add (P100, D2, 50) in Stock (now D2 exists)
+    cur.execute("""
+        INSERT INTO stock (prod_id, dept_id, quantity) 
+        VALUES ('P100', 'D2', 50)
+        ON CONFLICT (prod_id, dept_id) DO NOTHING
+    """)
+
+    # Transaction 5: Add depot (D100, Chicago, 100) in Depot
+    cur.execute("""
+        INSERT INTO depot (dept_id, addr, volume) 
+        VALUES ('D100', 'Chicago', 100)
+        ON CONFLICT (dept_id) DO NOTHING
+    """)
+
+    # Transaction 6: Add (P1, D100, 100) in Stock (ensure P1 exists)
+    cur.execute("""
+        INSERT INTO stock (prod_id, dept_id, quantity) 
+        VALUES ('P1', 'D100', 100)
+        ON CONFLICT (prod_id, dept_id) DO NOTHING
+    """)
+
+    # Transaction 7: Delete dependent rows from stock table that reference product P1
+    cur.execute("""
+        DELETE FROM stock WHERE prod_id = 'P1'
+    """)
+
+    # Transaction 8: Change product P1 name to PP1 in Product table
+    cur.execute("UPDATE product SET prod_id = 'PP1' WHERE prod_id = 'P1'")
+
+    # Transaction 9: Change depot D1 name to DD1 in Depot table
+    cur.execute("UPDATE depot SET dept_id = 'DD1' WHERE dept_id = 'D1'")
+
+    # Transaction 10: Delete product PP1 from Product
+    cur.execute("""
+        DELETE FROM product 
+        WHERE prod_id = 'PP1'
+    """)
+
+    # Transaction 11: Delete depot DD1 from Depot and Stock (cascade delete handles Stock)
+    cur.execute("""
+        DELETE FROM depot 
+        WHERE dept_id = 'DD1'
+    """)
+
+except (Exception, psycopg2.DatabaseError) as error:
+    print("Error occurred:", error)
+    print("Rolling back the transaction...")
+    conn.rollback()  # Rollback the transaction in case of error
+
+else:
+    # Commit the transaction if no errors occurred
+    conn.commit()
+    print("Transaction committed successfully!")
+
 finally:
-    if con:
-        con.commit()
-        cur.close
-        con.close
-        print("PostgreSQL connection is now closed")
+    # Close the cursor and the connection
+    cur.close()
+    conn.close()
+    print("PostgreSQL connection is now closed.")
